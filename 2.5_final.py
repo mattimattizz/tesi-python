@@ -1,15 +1,3 @@
-# -*- coding: utf-8 -*-
-"""
-EDA riproducibile per Vestiaire Collective (fix mix categoria×Paese + map country names)
-- Caricamento CSV (snippet richiesto)
-- Pulizia robusta del prezzo formattato
-- Mappatura Paese "nome esteso" -> ISO-2 per macro-aree
-- Statistiche pre/post-log
-- Macro-aree, Spearman, concentrazione like, brand>=2000
-- Mix categoria×Paese con calcolo percentuali senza reset_index conflittosi
-- Esportazione risultati in eda_outputs/
-Autore: <tuo nome> | Data: 2025-10-17
-"""
 
 import os
 import re
@@ -20,7 +8,7 @@ import numpy as np
 import pandas as pd
 from scipy import stats
 
-# ------------------------------ CONFIG ------------------------------------ #
+
 csv_path = r"C:\Users\Mattia\PycharmProjects\PythonProject\data\vestiaire.csv"
 print(f"Carico il file da: {csv_path}")
 
@@ -37,7 +25,7 @@ CANDIDATE_CAT_COLS   = ["category", "product_category", "sub_category", "product
 CANDIDATE_COND_COLS  = ["item_condition", "product_condition", "condition"]
 CANDIDATE_COUNTRY_COLS = ["seller_country", "country", "seller_country_code"]
 
-# Gruppi macro-area (ISO-2)
+
 EUROPE = {
     "AL","AD","AT","BY","BE","BA","BG","HR","CY","CZ","DK","EE","FO","FI","FR",
     "DE","GI","GR","HU","IS","IE","IT","XK","LV","LI","LT","LU","MT","MD","MC",
@@ -52,7 +40,7 @@ APAC = {
     "TW","UZ","VN","YE"
 }
 
-# Mappa "nome paese" -> ISO-2 (espandibile in base ai tuoi dati)
+
 COUNTRY_NAME_TO_ISO2 = {
     "germany": "DE", "deutschland": "DE",
     "belgium": "BE", "belgië": "BE", "belgique": "BE",
@@ -112,7 +100,7 @@ HARD_LUXURY_KEYWORDS = [
     "jewel", "gioiell", "ring", "earring", "necklace", "bracelet"
 ]
 
-# ------------------------------ IO ---------------------------------------- #
+
 print("🟡 Lettura CSV in corso...")
 df = pd.read_csv(csv_path)
 print(f"✅ CSV caricato. Righe: {len(df):,} | Colonne: {len(df.columns)}")
@@ -149,8 +137,7 @@ print("\n🔬 Esempi grezzi (prime 5) — prezzo e paese:")
 print(df[price_col].astype(str).head().to_string(index=False))
 print(df[country_col].astype(str).head().to_string(index=False))
 
-# ------------------------------ CLEANING ---------------------------------- #
-# 1) Pulizia del prezzo
+# Prezzo
 _price = df[price_col].astype(str)
 
 def to_float_price(x: str) -> float:
@@ -170,10 +157,10 @@ def to_float_price(x: str) -> float:
 df["_price_clean"] = _price.map(to_float_price)
 use_price = "_price_clean"
 
-# 2) Likes numerici
+# Likes numerici
 df[likes_col] = pd.to_numeric(df[likes_col], errors="coerce").fillna(0).astype(int)
 
-# 3) Paese: normalizza a ISO-2 dove possibile (non scartiamo se non è ISO-2)
+# Paese
 def normalize_country(val: str) -> str:
     if pd.isna(val):
         return np.nan
@@ -181,7 +168,7 @@ def normalize_country(val: str) -> str:
     if len(s) == 2 and s.isalpha():
         return s.upper()
     key = s.lower()
-    return COUNTRY_NAME_TO_ISO2.get(key, s)  # se non mappato, restituisce il nome originale
+    return COUNTRY_NAME_TO_ISO2.get(key, s)
 
 df["_seller_country_norm"] = df[country_col].map(normalize_country)
 
@@ -189,7 +176,7 @@ df["_seller_country_norm"] = df[country_col].map(normalize_country)
 df = df[(df[use_price] > 0) & (df["_seller_country_norm"].notna())].copy()
 print(f"\n✅ Dopo cleaning base: Righe valide: {len(df):,}")
 
-# ------------------------------ FEATURE ----------------------------------- #
+
 df["log_price"] = np.log10(df[use_price].astype(float))
 df["log1p_likes"] = np.log1p(df[likes_col].astype(float))
 
@@ -203,7 +190,7 @@ def map_area(cc):
         if s in NORTH_AMERICA:  return "North America"
         if s in APAC:           return "Asia-Pacific"
         return "Other"
-    # nomi estesi non mappati restano Other
+
     return "Other"
 
 df["macro_area"] = df["_seller_country_norm"].map(map_area)
@@ -216,7 +203,7 @@ def is_hard_luxury(txt):
 
 df["is_hard_luxury"] = df[cat_col].apply(is_hard_luxury)
 
-# ------------------------------ ANALISI ----------------------------------- #
+
 log_lines = []
 def logprint(s):
     print(s); log_lines.append(s)
@@ -226,7 +213,7 @@ logprint(f"Righe valide: {len(df):,}")
 logprint(f"Colonne disponibili: {len(df.columns)}")
 logprint(f"Colonna prezzo usata (pulita): {use_price}")
 
-# Statistiche pre/post-log
+
 def robust_summary(series, name):
     desc = {
         "count": float(series.shape[0]),
@@ -283,10 +270,10 @@ logprint("\nDifferenze di media log_price (macro-aree):")
 logprint(f"Asia-Pacific vs Europe: {d_apac_eu:.3f}" if not np.isnan(d_apac_eu) else "n/d")
 logprint(f"North America vs Europe: {d_na_eu:.3f}" if not np.isnan(d_na_eu) else "n/d")
 
-# Spearman
+
 rho_all, p_all = stats.spearmanr(df["log1p_likes"], df["log_price"], nan_policy="omit")
 
-# Subset hard-luxury (controllo dimensione)
+
 hl = df.loc[df["is_hard_luxury"], ["log1p_likes", "log_price"]].dropna()
 if len(hl) >= 10 and hl["log1p_likes"].nunique() >= 3 and hl["log_price"].nunique() >= 3:
     rho_hl, p_hl = stats.spearmanr(hl["log1p_likes"], hl["log_price"], nan_policy="omit")
@@ -298,7 +285,7 @@ logprint(f"Tutto il campione: rho = {rho_all:.3f}, p-value = {p_all:.3g}")
 logprint(f"Hard-luxury:       rho = {rho_hl if not np.isnan(rho_hl) else 'n/d'}, "
          f"p-value = {p_hl if not np.isnan(p_hl) else 'n/d'}")
 
-# Concentrazione like
+
 df_sorted_likes = df.sort_values(likes_col, ascending=False)
 top10_cut = max(1, int(math.ceil(0.10 * len(df_sorted_likes))))
 likes_total = df_sorted_likes[likes_col].sum()
@@ -312,7 +299,7 @@ logprint(
     else "Like totali = 0: impossibile calcolare la concentrazione."
 )
 
-# Brand >= 2000
+
 brand_counts = df[brand_col].astype(str).value_counts(dropna=False)
 brands_ge_2000 = brand_counts[brand_counts >= 2000].index.tolist()
 
@@ -329,7 +316,7 @@ if len(brand_stats) == 0:
 else:
     logprint(brand_stats.head(20).to_string())
 
-# Mix categoria × Paese (prime 10 nazioni per numerosità) — versione senza reset_index conflittosi
+
 top_countries = df["_seller_country_norm"].value_counts().head(10).index.tolist()
 
 mix_counts = (
@@ -358,7 +345,7 @@ for cc in top_countries:
     print(f"\n- {cc}: top categorie (% su paese)")
     print(sub[["seller_country_iso2", "category_name", "pct"]].to_string(index=False))
 
-# ------------------------------ EXPORT ------------------------------------ #
+
 summ_df = pd.concat([summ_price, summ_log], axis=1)
 summ_df.columns = ["price_clean", "price_log10"]
 summ_df.to_csv(OUTPUT_DIR / "summary_price_pre_post_log.csv", index=True)
